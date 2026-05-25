@@ -1,1 +1,8 @@
-mcp
+# Minimal runtime dependencies for go2_agent
+# Install with: pip install -r requirements.txt
+
+# MCP server framework
+mcp>=1.27.1
+
+# Unitree Go2 WebRTC client library
+unitree_webrtc_connect_leshy>=2.0.7
