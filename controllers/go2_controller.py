@@ -3,7 +3,7 @@ import asyncio
 import threading
 import time
 
-from unitree_webrtc_connect.constants import RTC_TOPIC
+from unitree_webrtc_connect.constants import RTC_TOPIC, SPORT_CMD
 from unitree_webrtc_connect.webrtc_driver import (
     UnitreeWebRTCConnection as LegionConnection,
     WebRTCConnectionMethod,
@@ -199,6 +199,54 @@ class Go2Controller:
             async_stop(),
             self.loop
         )
+
+
+    def list_sport_commands(
+        self
+    ):
+
+        return list(
+            SPORT_CMD.keys()
+        )
+
+    def execute_sport_command(
+        self,
+        command_name: str
+    ) -> str:
+
+        if not self.conn:
+            return "Not connected"
+
+        api_id = SPORT_CMD.get(command_name)
+
+        if api_id is None:
+            return f"Unknown sport command: {command_name}"
+
+
+        async def async_execute():
+
+            await self.conn.datachannel.pub_sub.publish_request_new(
+                RTC_TOPIC["SPORT_MOD"],
+                options={
+                    "api_id": api_id
+                }
+            )
+
+
+        try:
+
+            future = asyncio.run_coroutine_threadsafe(
+                async_execute(),
+                self.loop
+            )
+
+            future.result()
+
+            return f"Sport command sent: {command_name}"
+
+        except Exception as e:
+
+            return f"Sport command failed: {e}"
 
 
     def disconnect(self):

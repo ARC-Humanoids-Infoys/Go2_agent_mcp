@@ -14,6 +14,50 @@ def connect():
 
     return result
 
+@mcp.tool()
+def inspect_connection():
+
+    if not controller.conn:
+        return "Not connected"
+
+    return str(
+        dir(controller.conn)
+    )
+
+@mcp.tool()
+def inspect_datachannel():
+
+    if not controller.conn:
+        return "Not connected"
+
+    return str(
+        dir(controller.conn.datachannel)
+    )
+
+
+@mcp.tool()
+def inspect_rtc_inner_req():
+
+    if not controller.conn:
+        return "Not connected"
+
+    return str(
+        dir(
+            controller.conn.datachannel.rtc_inner_req
+        )
+    )
+
+@mcp.tool()
+def inspect_pub_sub():
+
+    if not controller.conn:
+        return "Not connected"
+
+    return str(
+        dir(
+            controller.conn.datachannel.pub_sub
+        )
+    )
 
 @mcp.tool()
 def move(
@@ -37,6 +81,24 @@ def move(
         "Movement failed"
     )
 
+@mcp.tool()
+def execute_sport_command(
+    command_name: str
+):
+
+    result = controller.execute_sport_command(
+        command_name=command_name
+    )
+
+    return result
+
+
+
+@mcp.tool()
+def list_sport_commands():
+
+    return controller.list_sport_commands()
+
 
 @mcp.tool()
 def stop():
@@ -52,6 +114,7 @@ def disconnect():
     controller.disconnect()
 
     return "Disconnected"
+
 
 
 if __name__ == "__main__":
