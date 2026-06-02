@@ -44,8 +44,10 @@ Unitree Go2
 
 ## Project Structure
 
+- Navigation features added:
+- Set navigation goals, check goal status, and cancel goals.
+- New tools for navigation management.
 ```text
-go2_agent/
 │
 ├── server.py
 ├── requirements.txt
@@ -56,6 +58,10 @@ go2_agent/
     └── wireless_controller_old.py
 ```
 
+ set_goal(x, y)
+ get_navigation_state()
+ is_goal_reached()
+ cancel_goal()
 ---
 
 ## Installation
@@ -72,7 +78,6 @@ Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-
 ---
 
 ## Run MCP Server
@@ -83,6 +88,7 @@ Set your robot IP:
 export ROBOT_IP=192.168.123.161
 ```
 
+- Navigation management tools added.
 Start the server:
 
 ```bash
