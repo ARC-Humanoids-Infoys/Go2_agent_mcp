@@ -6,7 +6,9 @@ from controllers.navigation_manager import NavigationManager
 mcp = FastMCP("go2_agent")
 
 controller = Go2Controller()
-navigation_manager = NavigationManager()
+navigation_manager = NavigationManager(
+    controller=controller
+)
 
 
 @mcp.tool()
@@ -205,6 +207,12 @@ def get_navigation_state():
 def is_goal_reached():
     """Check whether current goal has been reached."""
     return navigation_manager.is_goal_reached()
+
+
+@mcp.tool()
+def get_goal_status():
+    """Get distance/bearing to current goal and reached status."""
+    return navigation_manager.get_goal_status()
 
 
 @mcp.tool()
