@@ -224,3 +224,10 @@ Possible next steps:
 - camera/vision integration,
 - richer path planning,
 - higher-level task agent behaviors.
+
+
+-------------------
+# Terminal 1 — set robot IP and start server
+export ROBOT_IP=192.168.123.161
+cd ~/Go2_agent_mcp
+uvicorn client.app:app --host 0.0.0.0 --port 8000 --reload

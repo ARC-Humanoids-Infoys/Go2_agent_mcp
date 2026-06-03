@@ -5,11 +5,13 @@ from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 from mcp import ClientSession
 from mcp.client.stdio import stdio_client, StdioServerParameters
+import sys
 import time
+from pathlib import Path
 
 server_params = StdioServerParameters(
-    command="python",
-    args=["../server.py"]
+    command=sys.executable,
+    args=[str(Path(__file__).parent.parent / "server.py")]
 )
 
 mcp_session    = None
