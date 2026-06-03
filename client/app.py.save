@@ -1,0 +1,153 @@
+cd '/home/arc06/Go2_agent_mcp/client'
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from contextlib import asynccontextmanager
+
+from mcp import ClientSession
+from mcp.client.stdio import stdio_client, StdioServerParameters
+
+
+# ---------- MCP SETUP ----------
+
+server_params = StdioServerParameters(
+    command="python",
+    args=["../server.py"]
+)
+
+mcp_session = None
+mcp_stream_ctx = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    global mcp_session
+    global mcp_stream_ctx
+
+    mcp_stream_ctx = stdio_client(server_params)
+    read, write = await mcp_stream_ctx.__aenter__()
+
+    mcp_session = ClientSession(read, write)
+    await mcp_session.__aenter__()
+    await mcp_session.initialize()
+
+    print("MCP client connected")
+
+    yield
+
+    await mcp_session.__aexit__(None, None, None)
+    await mcp_stream_ctx.__aexit__(None, None, None)
+
+
+# ---------- FASTAPI ----------
+
+app = FastAPI(
+    lifespan=lifespan
+)
+
+templates = Jinja2Templates(
+    directory="templates"
+)
+
+app.mount(
+    "/static",
+    StaticFiles(directory="static"),
+    name="static"
+)
+
+
+# ---------- UI ----------
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+
+    return templates.TemplateResponse(
+     request=request,
+      name="index.html"
+)
+
+
+# ---------- MCP TOOL CALLS ----------
+
+@app.post("/connect")
+async def connect():
+
+    result = await mcp_session.call_tool(
+        "connect",
+        {}
+    )
+
+    return JSONResponse(
+        {"result": str(result)}
+    )
+
+
+@app.post("/disconnect")
+async def disconnect():
+
+    result = await mcp_session.call_tool(
+        "disconnect",
+        {}
+    )
+
+    return JSONResponse(
+        {"result": str(result)}
+    )
+
+
+@app.post("/stop")
+async def stop():
+
+    result = await mcp_session.call_tool(
+        "stop",
+        {}
+    )
+
+    return JSONResponse(
+        {"result": str(result)}
+    )
+
+
+@app.post("/move")
+async def move(request: Request):
+
+    data = await request.json()
+
+    result = await mcp_session.call_tool(
+        "move",
+        {
+            "x": data.get("x", 0),
+            "y": data.get("y", 0),
+            "yaw": data.get("yaw", 0),
+            "duration": data.get("duration", 0.5)
+        }
+    )
+
+    return JSONResponse(
+        {"result": str(result)}
+    )
+
+
+@app.get("/status")
+async def status():
+
+    return {
+        "server": "running",
+        "mcp": "connected"
+    }
+
+
+# ---------- RUN ----------
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )

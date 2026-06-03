@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Go2 MCP Client</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-l">
+    <div class="logo">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2L2 7v10l10 5 10-5V7L12 2z" stroke="var(--acc)" stroke-width="1.6" stroke-linejoin="round"/>
+        <circle cx="12" cy="12" r="2.5" fill="var(--acc)"/>
+      </svg>
+      Go2 <span>MCP</span> Client
+    </div>
+    <div class="vsep"></div>
+    <div class="transport-tag">
+      <span class="live-dot"></span>
+      stdio &nbsp;·&nbsp; <code>python ../server.py</code>
+    </div>
+  </div>
+  <div class="topbar-r">
+    <div class="conn-badge" id="conn-badge">
+      <span class="cb-dot" id="cb-dot"></span>
+      <span id="cb-text">Connecting…</span>
+    </div>
+    <div class="tools-badge" id="tools-badge">0 tools</div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <aside class="pane pane-tools">
+    <div class="pane-hdr">
+      <span class="pane-label">TOOLS</span>
+      <button class="icon-btn" onclick="loadTools()" title="Refresh tools">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8 1v3.5L10.5 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Refresh
+      </button>
+    </div>
+    <div class="tool-list" id="tool-list">
+      <div class="placeholder">Loading…</div>
+    </div>
+  </aside>
+
+  <main class="pane pane-runner">
+    <div class="pane-hdr">
+      <span class="pane-label" id="runner-label">SELECT A TOOL</span>
+      <button class="run-btn" id="run-btn" onclick="runTool()" style="display:none">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M3 1.5l7 4.5-7 4.5V1.5z" fill="currentColor"/></svg>
+        Run
+      </button>
+    </div>
+    <div class="runner-scroll" id="runner-body">
+      <div class="splash">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none" opacity=".15">
+          <rect x="6" y="18" width="28" height="4" rx="2" fill="currentColor"/>
+          <rect x="6" y="10" width="18" height="4" rx="2" fill="currentColor"/>
+          <rect x="6" y="26" width="22" height="4" rx="2" fill="currentColor"/>
+        </svg>
+        <p>Select a tool to inspect &amp; run it</p>
+      </div>
+    </div>
+  </main>
+
+  <aside class="pane pane-response">
+    <div class="tabs-bar">
+      <button class="tab-btn active" data-tab="response" onclick="switchTab(this)">Response</button>
+      <button class="tab-btn"        data-tab="history"  onclick="switchTab(this)">History</button>
+    </div>
+
+    <div class="tab-pane" id="tab-response">
+      <div class="res-meta" id="res-meta" style="display:none">
+        <span class="res-name" id="res-name"></span>
+        <span class="res-ms"   id="res-ms"></span>
+        <span class="res-chip" id="res-chip"></span>
+      </div>
+      <div class="res-empty" id="res-empty">Run a tool to see the response</div>
+      <pre class="res-body"   id="res-body" style="display:none"></pre>
+    </div>
+
+    <div class="tab-pane hidden" id="tab-history">
+      <div class="hist-hdr">
+        <span class="pane-label">CALL HISTORY</span>
+        <button class="icon-btn" onclick="clearHistory()">Clear</button>
+      </div>
+      <div class="hist-list" id="hist-list">
+        <div class="placeholder">No calls yet</div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
