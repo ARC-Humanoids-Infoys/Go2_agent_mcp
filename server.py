@@ -1,3 +1,7 @@
+import logging
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("unitree_webrtc_connect").setLevel(logging.WARNING)
+
 from mcp.server.fastmcp import FastMCP
 from controllers.go2_controller import Go2Controller
 from controllers.navigation_manager import NavigationManager

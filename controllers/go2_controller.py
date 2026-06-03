@@ -27,6 +27,7 @@ class Go2Controller:
         self.cmd_vel_timeout = 0.2
 
         self.connection_ready = threading.Event()
+        self.connection_error = None
 
         self.latest_low_state = None
         self.latest_odom = None
@@ -45,34 +46,48 @@ class Go2Controller:
             ip=self.ip
         )
 
+        self.connection_ready.clear()
+        self.connection_error = None
+
         self.loop = asyncio.new_event_loop()
 
         async def async_connect():
+            try:
 
-            await self.conn.connect()
+                await self.conn.connect()
 
-            await self.conn.datachannel.disableTrafficSaving(
-                True
-            )
+                await self.conn.datachannel.disableTrafficSaving(
+                    True
+                )
 
-            self.conn.datachannel.set_decoder(
-                decoder_type="native"
-            )
+                self.conn.datachannel.set_decoder(
+                    decoder_type="native"
+                )
 
-            self.conn.datachannel.pub_sub.subscribe(
-                RTC_TOPIC["LOW_STATE"],
-                self._on_low_state
-            )
+                self.conn.datachannel.pub_sub.subscribe(
+                    RTC_TOPIC["LOW_STATE"],
+                    self._on_low_state
+                )
 
-            self.conn.datachannel.pub_sub.subscribe(
-                RTC_TOPIC["ROBOTODOM"],
-                self._on_odom
-            )
+                self.conn.datachannel.pub_sub.subscribe(
+                    RTC_TOPIC["ROBOTODOM"],
+                    self._on_odom
+                )
 
-            self.connection_ready.set()
+                self.connection_ready.set()
 
-            while True:
-                await asyncio.sleep(1)
+                while True:
+                    await asyncio.sleep(1)
+
+            except asyncio.CancelledError:
+                raise
+
+            except BaseException as e:
+                self.connection_error = (
+                    f"Connect failed: {e}"
+                )
+                self.connection_ready.set()
+                self.conn = None
 
 
         def start_background_loop():
@@ -100,7 +115,40 @@ class Go2Controller:
         )
 
         if connected:
+            if self.connection_error:
+                return self.connection_error
             return "Connected to Go2"
+
+        if self.task is not None:
+            self.loop.call_soon_threadsafe(
+                self.task.cancel
+            )
+
+        if self.conn:
+            async def async_disconnect_timeout_cleanup():
+                await self.conn.disconnect()
+
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    async_disconnect_timeout_cleanup(),
+                    self.loop
+                )
+                future.result(timeout=2)
+            except Exception:
+                pass
+
+        self.loop.call_soon_threadsafe(
+            self.loop.stop
+        )
+
+        self.thread.join(
+            timeout=2
+        )
+
+        self.conn = None
+        self.loop = None
+        self.thread = None
+        self.task = None
 
         return "Connection timeout"
 
@@ -235,6 +283,14 @@ class Go2Controller:
         if not self.conn:
             return None, "Not connected"
 
+        wait_timeout_s = 2.0
+        start = time.time()
+
+        while self.latest_low_state is None:
+            if (time.time() - start) >= wait_timeout_s:
+                break
+            time.sleep(0.05)
+
         if self.latest_low_state is None:
             return None, "No LOW_STATE data received yet"
 
@@ -245,6 +301,14 @@ class Go2Controller:
 
         if not self.conn:
             return None, "Not connected"
+
+        wait_timeout_s = 2.0
+        start = time.time()
+
+        while self.latest_odom is None:
+            if (time.time() - start) >= wait_timeout_s:
+                break
+            time.sleep(0.05)
 
         if self.latest_odom is None:
             return None, "No ROBOTODOM data received yet"
@@ -323,6 +387,8 @@ class Go2Controller:
         if not isinstance(odom, dict):
             return {
                 "quaternion": None,
+                "yaw_rad": None,
+                "yaw_deg": None,
                 "yaw": None,
             }
 
@@ -333,18 +399,35 @@ class Go2Controller:
             or odom.get("pose", {}).get("orientation") if isinstance(odom.get("pose"), dict) else None
         )
 
-        yaw = (
-            odom.get("yaw")
-            or odom.get("theta")
-        )
+        yaw = None
+
+        if "yaw" in odom:
+            yaw = odom.get("yaw")
+        elif "theta" in odom:
+            yaw = odom.get("theta")
 
         if yaw is None and isinstance(odom.get("imu_state"), dict):
             rpy = odom.get("imu_state", {}).get("rpy", [])
             if len(rpy) >= 3:
                 yaw = rpy[2]
 
+        if not isinstance(yaw, numbers.Number):
+            try:
+                yaw = float(yaw)
+            except Exception:
+                yaw = None
+
+        if yaw is None:
+            yaw = self._yaw_from_quaternion(quat)
+
+        yaw_deg = None
+        if isinstance(yaw, numbers.Number):
+            yaw_deg = math.degrees(float(yaw))
+
         return {
             "quaternion": quat,
+            "yaw_rad": yaw,
+            "yaw_deg": round(yaw_deg, 3) if yaw_deg is not None else None,
             "yaw": yaw,
         }
 
@@ -388,7 +471,10 @@ class Go2Controller:
         if isinstance(orientation, str):
             return None
 
-        yaw = orientation.get("yaw")
+        yaw = orientation.get("yaw_rad")
+
+        if yaw is None:
+            yaw = orientation.get("yaw")
 
         if isinstance(yaw, numbers.Number):
             return float(yaw)
@@ -831,16 +917,29 @@ class Go2Controller:
 
         self.stop()
 
-        async def async_disconnect():
+        if not self.loop or not self.thread:
+            self.conn = None
+            self.connection_ready.clear()
+            self.connection_error = None
+            return
 
-            await self.conn.disconnect()
+        if self.task is not None:
+            self.loop.call_soon_threadsafe(
+                self.task.cancel
+            )
 
+        if self.conn:
+            async def async_disconnect():
+                await self.conn.disconnect()
 
-        asyncio.run_coroutine_threadsafe(
-            async_disconnect(),
-            self.loop
-        )
-
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    async_disconnect(),
+                    self.loop
+                )
+                future.result(timeout=3)
+            except Exception:
+                pass
 
         self.loop.call_soon_threadsafe(
             self.loop.stop
@@ -849,3 +948,12 @@ class Go2Controller:
         self.thread.join(
             timeout=5
         )
+
+        self.conn = None
+        self.loop = None
+        self.thread = None
+        self.task = None
+        self.latest_low_state = None
+        self.latest_odom = None
+        self.connection_ready.clear()
+        self.connection_error = None
