@@ -1,295 +1,226 @@
 # Go2 Agent MCP
 
-MCP-based control server for Unitree Go2 using WebRTC.
+MCP server for Unitree Go2 using WebRTC.
 
-This project recreates the core Go2 connection layer independently of DimOS and exposes robot control actions as MCP tools.
+This project exposes robot control, telemetry, odometry, and navigation as MCP tools so any MCP client (for example MCP Inspector) can control and query the robot.
 
-## Features
+## What is implemented
 
-- Connect to Go2 through WebRTC
-- Basic movement control
-- Built-in sport command support (via Unitree `SPORT_CMD`)
-- Stop robot movement
-- Disconnect from robot
-- MCP tool interface
-- Tested on a real Unitree Go2
+- WebRTC connection to Go2 via `unitree_webrtc_connect_leshy`
+- FastMCP server with STDIO transport
+- Real-time velocity movement control
+- Sport command discovery and execution (`SPORT_CMD` mapping)
+- LOW_STATE telemetry parsing (IMU, battery, motors, foot forces)
+- ROBOTODOM parsing (position, orientation, pose)
+- Distance and heading utilities from odometry
+- Closed-loop motion primitives:
+  - Move forward by distance
+  - Turn by relative angle
+- Navigation manager with background control loop:
+  - Set goal
+  - Start/stop navigator loop
+  - Goal status and goal reached checks
+  - Cancel goal
 
 ---
 
 ## Architecture
 
-This project currently provides an MCP server only.
-
-Since an MCP server does not provide a UI by itself, an MCP client is required to interact with it.
-
-For development and testing this project uses MCP Inspector.
-
-Architecture:
-
 ```text
-MCP Inspector
-      ↓
-FastMCP Server
-      ↓
-Go2Controller
-      ↓
-UnitreeWebRTCConnection
-      ↓
-WebRTC DataChannel
-      ↓
-Unitree Go2
+MCP Client (Inspector / Agent)
+            ↓
+       FastMCP Server
+            ↓
+      Go2Controller  ↔  NavigationManager
+            ↓
+ UnitreeWebRTCConnection (LocalSTA)
+            ↓
+      WebRTC DataChannel
+            ↓
+         Unitree Go2
 ```
 
 ---
 
-## Project Structure
+## Project structure
 
-- Navigation features added:
-- Set navigation goals, check goal status, and cancel goals.
-- New tools for navigation management.
 ```text
-│
+go2_agent/
 ├── server.py
 ├── requirements.txt
 ├── README.md
-│
+├── main.py
 └── controllers/
     ├── go2_controller.py
+    ├── navigation_manager.py
     └── wireless_controller_old.py
 ```
 
- set_goal(x, y)
- get_navigation_state()
- is_goal_reached()
- cancel_goal()
+Notes:
+- `navigation_manager.py` contains the autonomous goal-following worker loop.
+- `wireless_controller_old.py` is legacy ROS2 publish-based control and is not used by the current MCP flow.
+
+---
+
+## Requirements
+
+- Python 3.11+
+- Network access to robot (`ROBOT_IP`)
+- Node.js (only if using MCP Inspector)
+
+Python dependencies are in `requirements.txt`:
+- `mcp>=1.27.1`
+- `unitree_webrtc_connect_leshy>=2.0.7`
+
 ---
 
 ## Installation
 
-Create a new environment:
-
 ```bash
 conda create -n go2_agent python=3.11
 conda activate go2_agent
-```
-
-Install dependencies:
-
-```bash
 pip install -r requirements.txt
 ```
+
 ---
 
-## Run MCP Server
+## Run server
 
-Set your robot IP:
+Set robot IP:
 
 ```bash
 export ROBOT_IP=192.168.123.161
 ```
 
-- Navigation management tools added.
-Start the server:
+Start MCP server:
 
 ```bash
 python server.py
 ```
 
-The server will start and wait for an MCP client connection.
-
 ---
 
 ## Using MCP Inspector
 
-Start MCP Inspector:
+Start Inspector:
 
 ```bash
 npx @modelcontextprotocol/inspector
 ```
 
-Open the generated URL in your browser.
+Then configure:
 
-Configure Inspector:
-
-**Transport**
-
-```text
-STDIO
-```
-
-**Command**
-
-```text
-python
-```
-
-**Arguments**
-
-```text
-/home/user/go2_agent/server.py
-```
-
-Replace with your actual project path.
-
-**Environment Variables**
-
-Key:
-
-```text
-ROBOT_IP
-```
-
-Value:
-
-```text
-192.168.123.161
-```
-
-Click:
-
-```text
-Connect
-```
+- Transport: `STDIO`
+- Command: `python`
+- Arguments: `/home/user/go2_agent/server.py` (replace with your path)
+- Environment variable:
+  - Key: `ROBOT_IP`
+  - Value: robot IP (example `192.168.123.161`)
 
 ---
 
-## Available MCP Tools
+## MCP tools
 
-```text
-connect()
-move(x, y, yaw, duration)
-list_sport_commands()
-execute_sport_command(command_name)
-stop()
-disconnect()
-```
-
-### Tool Behavior
+### Connection / Debug
 
 - `connect()`
-      - Initializes WebRTC connection to the robot using `ROBOT_IP`.
-      - Must be called before movement or sport commands.
-- `move(x, y, yaw, duration)`
-      - Sends velocity-style joystick input.
-      - If `duration > 0`, command is streamed repeatedly for that duration.
-      - If `duration == 0`, sends a single movement command.
-- `list_sport_commands()`
-      - Returns the available sport command names from the Unitree sport API mapping.
-- `execute_sport_command(command_name)`
-      - Executes one sport action by command name (for example predefined motion actions supported by your robot firmware/library).
-      - Returns an error string if command name is unknown or if not connected.
-- `stop()`
-      - Publishes zero movement values to halt motion.
 - `disconnect()`
-      - Stops movement and closes the WebRTC session.
+- `inspect_connection()`
+- `inspect_datachannel()`
+- `inspect_rtc_inner_req()`
+- `inspect_pub_sub()`
+
+### Direct motion
+
+- `move(x=0, y=0, yaw=0, duration=0)`
+- `stop()`
+
+### Odometry / Pose
+
+- `test_odom()`
+- `get_position()`
+- `get_orientation()`
+- `get_pose()`
+- `set_reference_pose()`
+- `distance_from_reference()`
+- `measure_distance_traveled()`
+- `move_forward_distance(distance_meters, speed=0.4, timeout_s=20.0, tolerance_m=0.02)`
+- `turn_degrees(degrees, yaw_speed=0.5, timeout_s=20.0, tolerance_deg=3.0)`
+
+### LOW_STATE telemetry
+
+- `test_low_state()`
+- `get_imu()`
+- `get_battery()`
+- `get_motor_states()`
+- `get_foot_forces()`
+
+### Navigation manager
+
+- `set_goal(x, y)`
+- `get_navigation_state()`
+- `start_navigation()`
+- `stop_navigation()`
+- `is_goal_reached()`
+- `get_goal_status()`
+- `cancel_goal()`
+
+### Sport mode actions
+
+- `list_sport_commands()`
+- `execute_sport_command(command_name)`
 
 ---
 
-## Example
+## Navigation behavior summary
 
-Move robot forward:
+`NavigationManager` runs a background thread when started:
 
-```text
-move(
-    x=0,
-    y=0.1,
-    yaw=0,
-    duration=1
-)
-```
+1. Reads current robot pose from odometry.
+2. Computes distance and heading error to goal.
+3. If heading error is large (>|10| deg), rotates in place.
+4. Otherwise drives forward.
+5. Stops and marks goal reached when within goal tolerance (default `0.15 m`).
 
-List supported sport commands:
-
-```text
-list_sport_commands()
-```
-
-Run a sport command (replace with one from your list):
-
-```text
-execute_sport_command(command_name="StandUp")
-```
-
-## Available Sport Commands
-
-The following sport commands are currently available through `list_sport_commands()`:
-
-```text
-Damp
-BalanceStand
-StopMove
-StandUp
-StandDown
-RecoveryStand
-Euler
-Move
-Sit
-RiseSit
-SwitchGait
-Trigger
-BodyHeight
-FootRaiseHeight
-SpeedLevel
-Hello
-Stretch
-TrajectoryFollow
-ContinuousGait
-Content
-Wallow
-Dance1
-Dance2
-GetBodyHeight
-GetFootRaiseHeight
-GetSpeedLevel
-SwitchJoystick
-Pose
-Scrape
-FrontFlip
-LeftFlip
-RightFlip
-BackFlip
-FrontJump
-FrontPounce
-WiggleHips
-GetState
-EconomicGait
-LeadFollow
-FingerHeart
-Bound
-MoonWalk
-OnesidedStep
-CrossStep
-Handstand
-StandOut
-FreeWalk
-Standup
-CrossWalk
-```
-
-### Commands Tested on Real Robot
-
-Verified on hardware:
-
-- `StandUp` / `Standup`
-- `StandDown`
-- `Hello`
+This is a lightweight local navigator (not full SLAM/path planning).
 
 ---
 
-## Current Status
+## Typical workflow
 
-Implemented:
+1. `connect()`
+2. Validate sensor feed:
+   - `test_low_state()`
+   - `test_odom()`
+3. Manual checks:
+   - `move(...)`, `stop()`
+4. Start goal navigation:
+   - `set_goal(x, y)`
+   - `start_navigation()`
+   - `get_goal_status()` / `is_goal_reached()`
+5. End session:
+   - `stop_navigation()`
+   - `disconnect()`
 
-- WebRTC connection to Go2
-- MCP tool server
-- Basic robot movement control
-- Sport command discovery (`list_sport_commands`)
-- Sport command execution (`execute_sport_command`)
-- Real-robot validation for: `StandUp`/`Standup`, `StandDown`, `Hello`
+---
 
-Planned:
+## Important runtime notes
 
-- StandUp / SitDown actions
-- Additional robot actions
-- Camera stream integration
-- Agent support
+- Call `connect()` before any motion, telemetry, or navigation command.
+- If odometry/low-state are not yet received, tools return informative messages.
+- `disconnect()` stops navigation first, then closes WebRTC.
+- `move()` includes a safety timeout mechanism via internal stop timer.
+
+---
+
+## Status
+
+Current focus is robust MCP-driven robot operation with:
+- navigation goals,
+- closed-loop odometry primitives,
+- and low-state observability.
+
+Possible next steps:
+- camera/vision integration,
+- richer path planning,
+- higher-level task agent behaviors.

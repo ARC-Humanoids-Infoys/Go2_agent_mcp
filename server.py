@@ -204,6 +204,18 @@ def get_navigation_state():
 
 
 @mcp.tool()
+def start_navigation():
+    """Start the navigation manager background worker."""
+    return navigation_manager.start()
+
+
+@mcp.tool()
+def stop_navigation():
+    """Stop the navigation manager background worker."""
+    return navigation_manager.stop()
+
+
+@mcp.tool()
 def is_goal_reached():
     """Check whether current goal has been reached."""
     return navigation_manager.is_goal_reached()
@@ -249,6 +261,8 @@ def stop():
 
 @mcp.tool()
 def disconnect():
+
+    navigation_manager.stop()
 
     controller.disconnect()
 
