@@ -7,12 +7,8 @@ from mcp import ClientSession
 from mcp.client.stdio import stdio_client, StdioServerParameters
 import sys
 import time
+import os
 from pathlib import Path
-
-server_params = StdioServerParameters(
-    command=sys.executable,
-    args=[str(Path(__file__).parent.parent / "server.py")]
-)
 
 mcp_session    = None
 mcp_stream_ctx = None
@@ -26,6 +22,14 @@ async def lifespan(app: FastAPI):
     global mcp_session, mcp_stream_ctx, mcp_connected, tools_cache
 
     try:
+        # Create server params with CURRENT environment (including any env vars set via web UI)
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=[str(Path(__file__).parent.parent / "server.py")],
+            env=dict(os.environ)  # Pass current environment to subprocess
+        )
+        
+        print(f"Starting MCP server with ROBOT_IP={os.environ.get('ROBOT_IP', 'NOT SET')}")
         mcp_stream_ctx = stdio_client(server_params)
         read, write    = await mcp_stream_ctx.__aenter__()
         mcp_session    = ClientSession(read, write)
@@ -58,8 +62,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+client_dir = Path(__file__).parent
+templates = Jinja2Templates(directory=str(client_dir / "templates"))
+app.mount("/static", StaticFiles(directory=str(client_dir / "static")), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -79,6 +84,42 @@ async def status():
 @app.get("/tools")
 async def list_tools():
     return JSONResponse({"tools": tools_cache})
+
+
+@app.get("/env")
+async def get_env():
+    """Get all environment variables."""
+    return JSONResponse({"env": dict(os.environ)})
+
+
+@app.post("/env")
+async def set_env(request: Request):
+    """Set or delete an environment variable."""
+    body = await request.json()
+    key = body.get("key", "")
+    value = body.get("value")
+    
+    if not key:
+        return JSONResponse({"error": "Missing key"}, status_code=400)
+    
+    if value == "":
+        # Delete the variable if value is empty string
+        if key in os.environ:
+            del os.environ[key]
+        return JSONResponse({"ok": True, "key": key, "deleted": True})
+    else:
+        # Set the variable
+        os.environ[key] = str(value)
+        return JSONResponse({"ok": True, "key": key, "value": str(value)})
+
+
+@app.get("/env/{key}")
+async def get_env_var(key: str):
+    """Get a specific environment variable."""
+    value = os.environ.get(key)
+    if value is None:
+        return JSONResponse({"error": f"Env var '{key}' not found"}, status_code=404)
+    return JSONResponse({"key": key, "value": value})
 
 
 @app.post("/call")
