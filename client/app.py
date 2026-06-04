@@ -141,6 +141,101 @@ async def clear_history():
     return JSONResponse({"ok": True})
 
 
+# ── Agent chat endpoint ──────────────────────────────────────────────────────
+import sys, json as _json
+from pathlib import Path as _Path
+
+_AGENT_DIR = _Path(__file__).parent.parent / "agent"
+if str(_AGENT_DIR) not in sys.path:
+    sys.path.insert(0, str(_AGENT_DIR))
+
+try:
+    from agent import Agent as _Agent
+    from fastapi.responses import StreamingResponse
+    import threading as _threading
+    import traceback as _traceback
+
+    _agent_instance: "_Agent | None" = None
+    _agent_init_error: str | None = None
+    _agent_lock = _threading.Lock()
+
+    def _get_agent() -> "_Agent":
+        global _agent_instance, _agent_init_error
+        with _agent_lock:
+            if _agent_instance is None:
+                try:
+                    robot_ip = os.getenv("ROBOT_IP")
+                    if not robot_ip:
+                        raise ValueError("ROBOT_IP environment variable not set")
+                    print(f"[Agent] Initializing with ROBOT_IP={robot_ip}")
+                    _agent_instance = _Agent(robot_ip=robot_ip)
+                    print("[Agent] Initialized successfully")
+                except Exception as e:
+                    _agent_init_error = str(e)
+                    print(f"[Agent] Initialization failed: {e}")
+                    _traceback.print_exc()
+                    raise
+            return _agent_instance
+
+    @app.post("/chat")
+    async def chat(request: Request):
+        body = await request.json()
+        message = body.get("message", "").strip()
+        if not message:
+            return JSONResponse({"error": "Missing field: message"}, status_code=400)
+
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        def _run_agent():
+            agent = _get_agent()
+            return agent.ask_with_tools(message)
+
+        try:
+            result = await loop.run_in_executor(None, _run_agent)
+            return JSONResponse({
+                "content": result.get("content", ""),
+                "type": result.get("type", ""),
+                "tool_calls": [
+                    {"name": tc.get("name"), "args": tc.get("args", {})}
+                    for tc in result.get("tool_calls", [])
+                ],
+                "tool_results": result.get("tool_results", []),
+                "steps_used": result.get("steps_used", 0),
+                "step_trace": result.get("step_trace", []),
+            })
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[Chat] Error: {error_msg}")
+            _traceback.print_exc()
+            return JSONResponse({"error": error_msg}, status_code=500)
+
+except Exception as e:
+    print(f"Warning: Agent chat not available: {e}")
+    _traceback.print_exc()
+
+
+@app.get("/env")
+async def get_env():
+    safe_keys = ["ROBOT_IP", "ANTHROPIC_API_KEY", "OLLAMA_HOST", "MODEL"]
+    env_data = {k: os.environ.get(k, "") for k in safe_keys if os.environ.get(k)}
+    return JSONResponse({"env": env_data})
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
+
+@app.post("/env")
+async def set_env(request: Request):
+    body = await request.json()
+    key = body.get("key", "").strip()
+    value = body.get("value", "").strip()
+    if not key:
+        return JSONResponse({"error": "Missing key"}, status_code=400)
+    if value:
+        os.environ[key] = value
+    elif key in os.environ:
+        del os.environ[key]
+    return JSONResponse({"ok": True})

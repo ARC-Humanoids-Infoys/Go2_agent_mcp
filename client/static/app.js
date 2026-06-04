@@ -307,3 +307,78 @@ function id(x) { return document.getElementById(x); }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 async function get(p) { const r = await fetch(p); if (!r.ok) throw new Error(r.statusText); return r.json(); }
 async function post(p,b) { const r = await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); return r.json(); }
+
+
+// ── Agent Chat ───────────────────────────────────────────────────────────────
+let chatBusy = false;
+
+async function sendChat() {
+  const input = id('chat-input');
+  const sendBtn = id('chat-send');
+  const msg = input.value.trim();
+  if (!msg || chatBusy) return;
+
+  appendChat('user', msg);
+  input.value = '';
+  chatBusy = true;
+  sendBtn.disabled = true;
+
+  const thinking = appendChat('thinking', '⏳ Agent is thinking…');
+
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: msg}),
+    });
+    const data = await res.json();
+    thinking.remove();
+
+    if (data.error) {
+      appendChat('error-msg', '⚠ ' + data.error);
+    } else {
+      const toolCalls = data.tool_calls || [];
+      let html = esc(data.content || '(no response)');
+      if (toolCalls.length > 0) {
+        html += '<div class="chat-tools"><details><summary>🔧 ' + toolCalls.length + ' tool call(s)</summary>';
+        toolCalls.forEach(tc => {
+          const args = JSON.stringify(tc.args || {}, null, 2);
+          html += '<div class="chat-tool-call"><b>' + esc(tc.name) + '</b>\n' + esc(args) + '</div>';
+        });
+        html += '</details></div>';
+      }
+      appendChatHTML('agent', html);
+    }
+  } catch (e) {
+    thinking.remove();
+    appendChat('error-msg', '⚠ Network error: ' + e.message);
+  } finally {
+    chatBusy = false;
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+function appendChat(type, text) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg ' + type;
+  el.textContent = text;
+  const msgs = id('chat-messages');
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+  return el;
+}
+
+function appendChatHTML(type, html) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg ' + type;
+  el.innerHTML = html;
+  const msgs = id('chat-messages');
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+  return el;
+}
+
+function clearChat() {
+  id('chat-messages').innerHTML = '<div class="chat-msg agent">Chat cleared. How can I help?</div>';
+}
