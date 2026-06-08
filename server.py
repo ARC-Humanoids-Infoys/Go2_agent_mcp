@@ -78,6 +78,14 @@ def test_odom():
 
 
 @mcp.tool()
+def observe(save_path: str = ""):
+    """Return latest camera frame ndarray shape; optionally save to JPEG path."""
+    return controller.observe(
+        save_path=save_path or None
+    )
+
+
+@mcp.tool()
 def get_position():
     """Get robot position from ROBOTODOM."""
     return controller.get_position()

@@ -8,45 +8,77 @@ from mcp.client.stdio import stdio_client, StdioServerParameters
 from pathlib import Path
 import os
 import time
+import asyncio
 
 BASE_DIR = Path(__file__).parent
-
-server_params = StdioServerParameters(
-    command="python3",
-    args=[str(Path(__file__).parent.parent / "server.py")],
-    env=os.environ.copy(),
-)
+MCP_SERVER_SCRIPT = str(Path(__file__).parent.parent / "server.py")
 
 mcp_session    = None
 mcp_stream_ctx = None
 mcp_connected  = False
 tools_cache    = []
 call_history   = []
+mcp_lock       = asyncio.Lock()
+
+
+def _build_server_params() -> StdioServerParameters:
+    return StdioServerParameters(
+        command="python3",
+        args=[MCP_SERVER_SCRIPT],
+        env=os.environ.copy(),
+    )
+
+
+async def _stop_mcp_session() -> None:
+    global mcp_session, mcp_stream_ctx, mcp_connected, tools_cache
+
+    if mcp_session:
+        await mcp_session.__aexit__(None, None, None)
+    if mcp_stream_ctx:
+        await mcp_stream_ctx.__aexit__(None, None, None)
+
+    mcp_session = None
+    mcp_stream_ctx = None
+    mcp_connected = False
+    tools_cache = []
+
+
+async def _start_mcp_session() -> None:
+    global mcp_session, mcp_stream_ctx, mcp_connected, tools_cache
+
+    mcp_stream_ctx = stdio_client(_build_server_params())
+    read, write = await mcp_stream_ctx.__aenter__()
+    mcp_session = ClientSession(read, write)
+    await mcp_session.__aenter__()
+    await mcp_session.initialize()
+    mcp_connected = True
+
+    resp = await mcp_session.list_tools()
+    tools_cache = []
+    for t in resp.tools:
+        schema = {}
+        if hasattr(t, "inputSchema") and t.inputSchema:
+            schema = t.inputSchema if isinstance(t.inputSchema, dict) else t.inputSchema.model_dump()
+        tools_cache.append({
+            "name":        t.name,
+            "description": t.description or "",
+            "inputSchema": schema,
+        })
+
+
+async def _restart_mcp_session() -> None:
+    async with mcp_lock:
+        try:
+            await _stop_mcp_session()
+        except Exception:
+            pass
+        await _start_mcp_session()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global mcp_session, mcp_stream_ctx, mcp_connected, tools_cache
-
     try:
-        mcp_stream_ctx = stdio_client(server_params)
-        read, write    = await mcp_stream_ctx.__aenter__()
-        mcp_session    = ClientSession(read, write)
-        await mcp_session.__aenter__()
-        await mcp_session.initialize()
-        mcp_connected  = True
-
-        resp = await mcp_session.list_tools()
-        tools_cache = []
-        for t in resp.tools:
-            schema = {}
-            if hasattr(t, "inputSchema") and t.inputSchema:
-                schema = t.inputSchema if isinstance(t.inputSchema, dict) else t.inputSchema.model_dump()
-            tools_cache.append({
-                "name":        t.name,
-                "description": t.description or "",
-                "inputSchema": schema,
-            })
+        await _restart_mcp_session()
         print(f"MCP connected — {len(tools_cache)} tools loaded")
 
     except Exception as e:
@@ -55,9 +87,11 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    if mcp_session:    await mcp_session.__aexit__(None, None, None)
-    if mcp_stream_ctx: await mcp_stream_ctx.__aexit__(None, None, None)
-    mcp_connected = False
+    try:
+        async with mcp_lock:
+            await _stop_mcp_session()
+    except Exception:
+        pass
 
 
 app = FastAPI(lifespan=lifespan)
@@ -238,4 +272,15 @@ async def set_env(request: Request):
         os.environ[key] = value
     elif key in os.environ:
         del os.environ[key]
-    return JSONResponse({"ok": True})
+
+    try:
+        await _restart_mcp_session()
+        return JSONResponse({"ok": True, "mcp_restarted": True})
+    except Exception as e:
+        return JSONResponse(
+            {
+                "ok": True,
+                "mcp_restarted": False,
+                "warning": f"Environment updated but MCP restart failed: {e}",
+            }
+        )

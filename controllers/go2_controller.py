@@ -31,6 +31,7 @@ class Go2Controller:
 
         self.latest_low_state = None
         self.latest_odom = None
+        self.latest_frame = None
         self._reference_pose = None
 
 
@@ -54,7 +55,25 @@ class Go2Controller:
         async def async_connect():
             try:
 
-                await self.conn.connect()
+                connect_task = asyncio.create_task(
+                    self.conn.connect()
+                )
+
+                while not hasattr(self.conn, "video"):
+                    if connect_task.done():
+                        break
+                    await asyncio.sleep(0.01)
+
+                if hasattr(self.conn, "video"):
+                    self.conn.video.add_track_callback(
+                        self._video_callback
+                    )
+
+                await connect_task
+
+                self.conn.video.switchVideoChannel(
+                    True
+                )
 
                 await self.conn.datachannel.disableTrafficSaving(
                     True
@@ -276,6 +295,47 @@ class Go2Controller:
             self.latest_odom = msg.get("data", msg)
         else:
             self.latest_odom = msg
+
+
+    async def _video_callback(self, track):
+
+        while True:
+            frame = await track.recv()
+            self.latest_frame = frame
+
+
+    def observe(
+        self,
+        save_path: str | None = None,
+    ):
+
+        if self.latest_frame is None:
+            return "No frame available"
+
+        frame = self.latest_frame
+        img = frame.to_ndarray(format="bgr24")
+
+        result = {
+            "shape": list(img.shape),
+            "saved": False,
+        }
+
+        if save_path:
+            try:
+                import cv2
+                import os
+
+                abs_path = os.path.abspath(save_path)
+                ok = cv2.imwrite(abs_path, img)
+                result["saved"] = bool(ok)
+                result["save_path"] = abs_path
+            except Exception as e:
+                result["saved"] = False
+                result["save_error"] = str(e)
+        else:
+            result["save_hint"] = "Provide save_path to save an image, e.g. /home/arc01/go2_agent/test.jpg"
+
+        return result
 
 
     def _require_low_state(self):
@@ -955,5 +1015,6 @@ class Go2Controller:
         self.task = None
         self.latest_low_state = None
         self.latest_odom = None
+        self.latest_frame = None
         self.connection_ready.clear()
         self.connection_error = None

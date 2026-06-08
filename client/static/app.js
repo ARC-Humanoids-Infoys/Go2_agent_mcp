@@ -180,6 +180,7 @@ function closeResponse() {
 
 function addToHistory(item) {
   const list = id('history-list');
+  if (!list) return;
   if (list.firstElementChild && list.firstElementChild.classList.contains('empty-state')) {
     list.innerHTML = '';
   }
@@ -192,8 +193,10 @@ function addToHistory(item) {
 }
 
 async function clearHistory() {
+  const list = id('history-list');
+  if (!list) return;
   if (confirm('Clear history?')) {
-    id('history-list').innerHTML = '<div class="empty-state">No calls yet</div>';
+    list.innerHTML = '<div class="empty-state">No calls yet</div>';
   }
 }
 
